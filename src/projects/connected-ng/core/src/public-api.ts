@@ -1,5 +1,11 @@
 export { ConfigurationService } from './services/configuration/configuration-service';
 export { HttpConfigurationLoader } from './services/configuration/http-configuration-loader';
+export { configurationValue } from './services/configuration/configuration-value';
+export { UrlService } from './services/url-service';
+export { EventService, EVENT_SERVICE_CONFIG, EventServiceConfiguration, ConnectionState } from './services/common/event-service';
+export { EventSubscriptions } from './services/common/event-subscriptions';
+export type { EventKey } from './services/common/event-subscriptions';
 export { UserService, USER_SERVICE_CONFIG } from './services/users/user-service';
-export { CoreConfigurationProvider as ConfigurationProvider } from './services/service-configuration-initializer';
+export { ConfigurationProvider, CoreConfigurationProvider } from './services/service-configuration-initializer';
+export type { ConfigurationProviderProvider } from './services/service-configuration-initializer';
 

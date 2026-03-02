@@ -32,11 +32,10 @@ export class ConfigurationService {
       const value = obj[key];
       const currentPath = [...keyPath, key];
 
-      // Check if it's a ConfigurationValue
-      if (typeof value === 'function' && typeof value.set === 'function') {
+      if (typeof value !== 'object') {
         // It's a ConfigurationValue, store its current value
         const configKey = currentPath.join(':');
-        const configValue = value();
+        const configValue = value;
         this.setConfiguration(configKey, configValue);
       } else if (value && typeof value === 'object' && !Array.isArray(value)) {
         // It's a nested object, recurse
