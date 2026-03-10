@@ -8,4 +8,5 @@ export type { EventKey } from './services/common/event-subscriptions';
 export { UserService, USER_SERVICE_CONFIG } from './services/users/user-service';
 export { ConfigurationProvider, CoreConfigurationProvider } from './services/service-configuration-initializer';
 export type { ConfigurationProviderProvider } from './services/service-configuration-initializer';
+export * from './services/users/dtos/user-dtos';
 
