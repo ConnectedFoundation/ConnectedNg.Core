@@ -1,7 +1,5 @@
 import { HttpParams } from "@angular/common/http";
 
-type ArrayFormat = 'indices' | 'repeat';
-
 export function queryParamsMapper<T extends object>(
   dto?: T
 ): HttpParams {
@@ -10,12 +8,9 @@ export function queryParamsMapper<T extends object>(
   if (!dto)
     return params;
 
-  // resolveDto(params, dto);
-
-  let result = resolveDtooo(dto);
+  let result = resolveDto(dto);
 
   result.forEach(param => {
-    // append(params, param.name, param.value);
     params = params.append(param.name, stringify(param.value));
   });
 
@@ -27,14 +22,14 @@ interface Param {
   value: string
 }
 
-function resolveDtooo(value: any): Param[] {
+function resolveDto(value: any): Param[] {
   if (!value || value === undefined)
     return [];
 
   let params: Param[] = [];
 
   if (typeof value !== 'object' || value instanceof Date) {
-    debugger    // path
+    // Leave for @MihaelOcvirk to resolve
   }
 
   if (Array.isArray(value)) {
@@ -124,13 +119,6 @@ function stringify(value: any): string {
   if (typeof value === 'number' && !Number.isFinite(value)) return String(value);
 
   return String(value);
-}
-
-function append(params: HttpParams, key: string, value: any): void {
-  if ((value === null || value === undefined)) {
-    return;
-  }
-  params = params.append(key, stringify(value));
 }
 
 function dateSerializer(value: Date): string {
