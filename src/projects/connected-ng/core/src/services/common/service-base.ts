@@ -11,10 +11,16 @@ export interface ServiceDescriptor {
   serviceUrl: string;
 }
 
-export interface InvokableServiceOperation<TDto extends object | undefined, TReturnType> {
-  (dto: TDto): Observable<TReturnType>;
-  describeDto(): Observable<DtoDescriptor>;
-}
+export type InvokableServiceOperation<TDto extends object | undefined, TReturnType> =
+  undefined extends TDto
+  ? {
+    (dto?: TDto): Observable<TReturnType>;
+    describeDto(): Observable<DtoDescriptor>;
+  }
+  : {
+    (dto: TDto): Observable<TReturnType>;
+    describeDto(): Observable<DtoDescriptor>;
+  };
 
 // Overload: Using ServiceBase (shorter)
 export function createServiceOperation<TDto extends object | undefined, TReturnType>(
@@ -58,9 +64,9 @@ export function createServiceOperation<TDto extends object | undefined, TReturnT
 
   const serviceOp = new ServiceOperation<TDto, TReturnType>(service, operation, method, httpClient, urlSvc);
 
-  const invokeFn = (dto: TDto): Observable<TReturnType> => {
-    return serviceOp.invoke(dto);
-  };
+  const invokeFn = ((dto?: TDto): Observable<TReturnType> => {
+    return serviceOp.invoke(dto as TDto);
+  }) as any;
 
   invokeFn.describeDto = (): Observable<DtoDescriptor> => {
     return serviceOp.describe();

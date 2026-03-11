@@ -14,3 +14,7 @@ export * from './services/common/utils/query-params-mapper';
 export * from './services/common/enums/http-method';
 export * from './services/common/enums/order-by-mode';
 export * from './services/common/enums/status';
+export * from './services/common/dtos/dto-descriptor';
+export * from './services/common/dtos/primary-key-dto';
+export * from './services/common/dtos/query-dto';
+export * from './services/common/dtos/primary-key-list-dto';
