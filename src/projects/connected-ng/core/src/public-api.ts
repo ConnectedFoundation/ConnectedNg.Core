@@ -11,6 +11,7 @@ export type { ConfigurationProviderProvider } from './services/service-configura
 export * from './services/users/dtos/user-dtos';
 export * from './services/common/service-base';
 export * from './services/common/utils/query-params-mapper';
+export * from './services/common/utils/route-pattern';
 export * from './services/common/enums/http-method';
 export * from './services/common/enums/order-by-mode';
 export * from './services/common/enums/status';
