@@ -19,3 +19,4 @@ export * from './services/common/dtos/dto-descriptor';
 export * from './services/common/dtos/primary-key-dto';
 export * from './services/common/dtos/query-dto';
 export * from './services/common/dtos/primary-key-list-dto';
+export * from './services/common/local-storage-service';
