@@ -9,6 +9,9 @@
     "sourceMap": true,
     "types": []
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "authentication/src/credential-storage-service.ts"
+  ],
   "exclude": ["**/*.spec.ts"]
 }
