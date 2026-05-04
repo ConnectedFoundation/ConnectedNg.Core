@@ -71,7 +71,7 @@ function resolveObject(basePath: string, value: any): Param[] {
   Object.keys(value).forEach((propertyName) => {
     let propertyValue = value[propertyName];
 
-    if (!propertyValue)
+    if (propertyValue === null || propertyValue === undefined)
       return;
 
     if (isPrimitive(propertyValue)) {
