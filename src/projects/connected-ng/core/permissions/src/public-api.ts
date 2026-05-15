@@ -1,0 +1,13 @@
+export { RoleService, ROLE_SERVICE_CONFIG } from './services/roles/role-service';
+export * from './services/roles/dtos/role-dtos';
+export { MembershipService, MEMBERSHIP_SERVICE_CONFIG } from './services/membership/membership-service';
+export * from './services/membership/dtos/membership-dtos';
+export { ClaimService, CLAIM_SERVICE_CONFIG } from './services/claims/claim-service';
+export { ClaimSchemaService, CLAIM_SCHEMA_SERVICE_CONFIG } from './services/claims/claims-schema-service';
+export * from './services/claims/dtos/claim-dtos';
+export * from './components/role-code-list/role-code-list';
+export * from './components/role-code-list/role-update-form/role-update-form-fields/role-update-form-fields';
+export * from './components/role-code-list/role-select-box/role-select-box';
+export * from './components/role-code-list/role-select-list/role-select-list';
+export * from './components/claim-select-list/claim-select-list';
+export { CorePermissionsConfigurationProvider as ConfigurationProvider } from './services/service-configuration-initializer';

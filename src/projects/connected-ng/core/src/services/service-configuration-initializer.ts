@@ -1,7 +1,6 @@
-import { EnvironmentInjector, EnvironmentProviders, inject, Injectable, InjectionToken, Provider, runInInjectionContext } from '@angular/core';
-import { ConfigurationService } from '../public-api';
+import { EnvironmentInjector, inject, Injectable, Provider, runInInjectionContext } from '@angular/core';
+import { ConfigurationService } from '../services/configuration/configuration-service';
 
-import { USER_SERVICE_CONFIG, UserServiceConfiguration } from './users/user-service';
 import { EVENT_SERVICE_CONFIG, EventServiceConfiguration } from './common/event-service';
 
 export abstract class ConfigurationProvider {
@@ -41,12 +40,11 @@ export class CoreConfigurationProvider extends ConfigurationProvider {
   }
 
   static getConfigurationTokens(): any[] {
-    return [USER_SERVICE_CONFIG, EVENT_SERVICE_CONFIG];
+    return [EVENT_SERVICE_CONFIG];
   }
 
   static getConfigurationTokenProviders(): Provider[] {
     return [
-      { provide: USER_SERVICE_CONFIG, useValue: new UserServiceConfiguration() },
       { provide: EVENT_SERVICE_CONFIG, useValue: new EventServiceConfiguration() }
     ];
   }

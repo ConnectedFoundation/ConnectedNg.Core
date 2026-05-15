@@ -1,0 +1,28 @@
+<cn-code-list-list
+  [items]="items()"
+  [itemTemplate]="viewTemplate"
+  [itemActionsTemplate]="detailTemplate"
+  [codeListActions]="codeListActions()"
+>
+</cn-code-list-list>
+
+<ng-template #detailTemplate let-item>
+  <cn-code-list-actions-container
+    [item]="item"
+    [actions]="actions(item)"
+  ></cn-code-list-actions-container>
+</ng-template>
+
+<ng-template #viewTemplate let-item>
+  <div class="d-flex">
+    <div
+      class="cn-dot"
+      [class.bg-info]="item.status === 1"
+      [class.bg-dark]="item.status === 2"
+    ></div>
+    <div class="display-value">
+      <div class="list-item-label">Name</div>
+      <div class="list-item-title">{{ item.name }}</div>
+    </div>
+  </div>
+</ng-template>

@@ -1,0 +1,7 @@
+<ng-template [busyIndicator]="[loadKey, busyKey]">
+  @if (loaded()) {
+    <cn-role-select-list
+      [(selectedValues)]="selectedRoleIds"
+    ></cn-role-select-list>
+  }
+</ng-template>

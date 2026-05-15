@@ -1,0 +1,22 @@
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <div class="placeholder-containerborder-gradient">
+    <div class="grid my-2" style="--columns: 4">
+      @if (name()) {
+        <dynamic-form-field
+          [fieldConfig]="name()!.fieldConfig"
+          [control]="name()!.control"
+        ></dynamic-form-field>
+      }
+      @if (parent()) {
+        <cn-role-select-box
+          [control]="$any(parent()!.control)"
+        ></cn-role-select-box>
+      }
+    </div>
+  </div>
+  @if (form.invalid && form.touched) {
+    <div class="form-errors">
+      <p>Please correct the errors above before submitting.</p>
+    </div>
+  }
+</form>

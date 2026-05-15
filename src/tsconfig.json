@@ -4,8 +4,21 @@
   "compileOnSave": false,
   "compilerOptions": {
     "paths": {
-      "@connected-ng/Core": [
-        "./dist/connected-ng/core"
+      "@connected-ng/core": ["./projects/connected-ng/core/src/public-api.ts"],
+      "@connected-ng/core/authentication": [
+        "./projects/connected-ng/core/authentication/src/public-api.ts"
+      ],
+      "@connected-ng/core/errors": [
+        "./projects/connected-ng/core/errors/src/public-api.ts"
+      ],
+      "@connected-ng/core/permissions": [
+        "./projects/connected-ng/core/permissions/src/public-api.ts"
+      ],
+      "@connected-ng/core/users": [
+        "./projects/connected-ng/core/users/src/public-api.ts"
+      ],
+      "@connected-ng/core/permission-management": [
+        "./projects/connected-ng/core/permission-management/src/public-api.ts"
       ]
     },
     "strict": true,

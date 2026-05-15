@@ -1,0 +1,29 @@
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <div class="placeholder-containerborder-gradient">
+    <div class="grid my-2" style="--columns: 4">
+      @if (firstName()) {
+        <dynamic-form-field
+          [fieldConfig]="firstName()!.fieldConfig"
+          [control]="firstName()!.control"
+        ></dynamic-form-field>
+      }
+      @if (lastName()) {
+        <dynamic-form-field
+          [fieldConfig]="lastName()!.fieldConfig"
+          [control]="lastName()!.control"
+        ></dynamic-form-field>
+      }
+      @if (email()) {
+        <dynamic-form-field
+          [fieldConfig]="email()!.fieldConfig"
+          [control]="email()!.control"
+        ></dynamic-form-field>
+      }
+    </div>
+  </div>
+  @if (form.invalid && form.touched) {
+    <div class="form-errors">
+      <p>Please correct the errors above before submitting.</p>
+    </div>
+  }
+</form>

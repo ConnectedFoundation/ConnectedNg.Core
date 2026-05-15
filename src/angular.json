@@ -7,7 +7,12 @@
       "projectType": "library",
       "root": "projects/connected-ng/core",
       "sourceRoot": "projects/connected-ng/core/src",
-      "prefix": "cf",
+      "prefix": "cn",
+      "schematics": {
+        "@schematics/angular:component": {
+          "style": "scss"
+        }
+      },
       "architect": {
         "build": {
           "builder": "@angular/build:ng-packagr",

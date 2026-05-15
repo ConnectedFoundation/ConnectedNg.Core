@@ -7,11 +7,18 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "types": []
+    "types": [],
+    "paths": {
+      "@connected-ng/core": ["../../../dist/connected-ng/core"],
+      "@connected-ng/core/*": ["../../../dist/connected-ng/core/*"]
+    }
   },
   "include": [
     "src/**/*.ts",
+    "users/src/**/*.ts",
+    "permissions/src/**/*.ts",
     "authentication/src/credential-storage-service.ts"
   ],
+
   "exclude": ["**/*.spec.ts"]
 }
