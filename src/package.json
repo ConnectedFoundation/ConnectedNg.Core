@@ -19,9 +19,6 @@
     ]
   },
   "private": true,
-  "peerDependencies": {
-    "@connected-ng/components": "workspace:*"
-  },
   "dependencies": {
     "@angular/common": "^21.1.0",
     "@angular/compiler": "^21.1.0",
