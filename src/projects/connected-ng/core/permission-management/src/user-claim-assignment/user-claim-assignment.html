@@ -1,9 +1,0 @@
-<ng-template [busyIndicator]="[loadKey, busyKey]">
-  @if (loaded()) {
-    <cn-claim-select-list
-      [entity]="'user'"
-      [entityId]="entityId()"
-      [(selectedValues)]="selectedClaimValues"
-    ></cn-claim-select-list>
-  }
-</ng-template>

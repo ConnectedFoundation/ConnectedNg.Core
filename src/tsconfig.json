@@ -10,15 +10,6 @@
       ],
       "@connected-ng/core/errors": [
         "./projects/connected-ng/core/errors/src/public-api.ts"
-      ],
-      "@connected-ng/core/permissions": [
-        "./projects/connected-ng/core/permissions/src/public-api.ts"
-      ],
-      "@connected-ng/core/users": [
-        "./projects/connected-ng/core/users/src/public-api.ts"
-      ],
-      "@connected-ng/core/permission-management": [
-        "./projects/connected-ng/core/permission-management/src/public-api.ts"
       ]
     },
     "strict": true,

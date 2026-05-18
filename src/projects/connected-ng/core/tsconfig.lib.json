@@ -15,9 +15,8 @@
   },
   "include": [
     "src/**/*.ts",
-    "users/src/**/*.ts",
-    "permissions/src/**/*.ts",
-    "authentication/src/credential-storage-service.ts"
+    "authentication/src/**/*.ts",
+    "errors/src/**/*.ts"
   ],
 
   "exclude": ["**/*.spec.ts"]
