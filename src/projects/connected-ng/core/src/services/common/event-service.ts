@@ -1,9 +1,9 @@
-import { Injectable, signal, inject, InjectionToken } from "@angular/core";
+import { inject, Injectable, InjectionToken, signal } from "@angular/core";
 import * as signalR from '@microsoft/signalr';
-import { EventKey, EventSubscriptions } from "./event-subscriptions";
 import { catchError, defer, from, map, Observable, shareReplay, switchMap, throwError } from "rxjs";
 import { configurationValue } from "../configuration/configuration-value";
 import { UrlService } from "../url-service";
+import { EventKey, EventSubscriptions } from "./event-subscriptions";
 
 export enum ConnectionState {
   Disconnected,
@@ -97,6 +97,12 @@ export class EventService {
     return this._subscriptions.on(event);
   }
 
+  private _resubscribeAll(): void {
+    for (const event of this._subscriptions.keys()) {
+      this.onSubscribe(event);
+    }
+  }
+
   private onSubscribe(event: EventKey): void {
     const descriptor = this.parseService(event);
 
@@ -130,23 +136,31 @@ export class EventService {
     const accessTokenFactory = this.configuration.accessTokenFactory?.() || (() => '');
     const url = this.urlService.generateUrl(this.configuration.baseUrl(), `hubs/notifications/events?client=${EventService._clientId}`);
 
+    const retryPolicy: signalR.IRetryPolicy = {
+      nextRetryDelayInMilliseconds: (retryContext) => {
+        return 5000;
+      }
+    };
+
     this._connection = new signalR.HubConnectionBuilder()
       .withUrl(url, {
         accessTokenFactory: accessTokenFactory,
         withCredentials: false
       })
-      .withAutomaticReconnect([0, 2000, 5000, 10000])
+      .withAutomaticReconnect(retryPolicy)
       .configureLogging(signalR.LogLevel.Information)
       .build();
 
     this._connection.onreconnecting(() =>
       this._state.set(ConnectionState.Reconnecting)
     );
-    this._connection.onreconnected(() =>
-      this._state.set(ConnectionState.Connected)
-    );
+    this._connection.onreconnected(() => {
+      this._state.set(ConnectionState.Connected);
+      this._resubscribeAll();
+    });
     this._connection.onclose(() => {
       this._state.set(ConnectionState.Disconnected);
+      this.connect$ = undefined;
     });
   }
 

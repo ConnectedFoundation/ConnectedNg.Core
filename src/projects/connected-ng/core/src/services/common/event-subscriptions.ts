@@ -1,4 +1,4 @@
-import { Subject, Observable } from "rxjs";
+import { Observable, Subject } from "rxjs";
 
 export type EventKey = Lowercase<string>;
 
@@ -55,6 +55,10 @@ export class EventSubscriptions {
     this._items.set(event, channel);
 
     return channel.obs;
+  }
+
+  keys(): EventKey[] {
+    return Array.from(this._items.keys());
   }
 
   emit<T = any>(event: EventKey, dto: T): void {
