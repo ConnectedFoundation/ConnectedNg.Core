@@ -40,10 +40,12 @@ export class EventService {
   private _connection?: signalR.HubConnection;
   private _subscriptions: EventSubscriptions;
   private _handlersRegistered: boolean = false;
+  private _isUnstable = signal<boolean>(false)
 
   readonly state = this._state.asReadonly();
   readonly lastError = this._lastError.asReadonly();
   readonly messages = this._messages.asReadonly();
+  readonly isUnstable = this._isUnstable.asReadonly();
 
   constructor() {
     this._subscriptions = new EventSubscriptions();
@@ -151,16 +153,24 @@ export class EventService {
       .configureLogging(signalR.LogLevel.Information)
       .build();
 
-    this._connection.onreconnecting(() =>
-      this._state.set(ConnectionState.Reconnecting)
-    );
+    this._connection.onreconnecting(() => {
+      this._state.set(ConnectionState.Reconnecting);
+      this._isUnstable.set(true);
+    });
     this._connection.onreconnected(() => {
       this._state.set(ConnectionState.Connected);
+      this._isUnstable.set(false);
       this._resubscribeAll();
     });
     this._connection.onclose(() => {
       this._state.set(ConnectionState.Disconnected);
+
+      // Only unstable if subscribers are still waiting — not a normal idle close
+      this._isUnstable.set(this._subscriptions.keys().length > 0);
+
       this.connect$ = undefined;
+      this._connection = undefined;
+      this._handlersRegistered = false;
     });
   }
 
