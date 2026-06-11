@@ -1,7 +1,7 @@
 import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { lastValueFrom, tap } from 'rxjs';
-import { HTTP_ERROR_HANDLING_MODE } from '../../../errors/src/error-handler-contract';
+import { HTTP_ERROR_HANDLING_MODE } from '@connected-ng/core/errors';
 
 @Injectable({
   providedIn: 'root',
