@@ -1,10 +1,15 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
-import { ERROR_HANDLER_CONTRACT } from './error-handler-contract';
+import { ERROR_HANDLER_CONTRACT, HTTP_ERROR_HANDLING_MODE } from './error-handler-contract';
 
 export const httpErrorInterceptor: HttpInterceptorFn = (req, next) => {
   const errorService = inject(ERROR_HANDLER_CONTRACT, { optional: true });
+
+  const mode = req.context.get(HTTP_ERROR_HANDLING_MODE);
+
+  if (mode === 'silent')
+    return next(req);
 
   return next(req).pipe(
     catchError((err: unknown) => {

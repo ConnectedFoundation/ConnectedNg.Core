@@ -1,6 +1,7 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { lastValueFrom, tap } from 'rxjs';
+import { HTTP_ERROR_HANDLING_MODE } from '../../../errors/src/error-handler-contract';
 
 @Injectable({
   providedIn: 'root',
@@ -20,7 +21,7 @@ export class HttpConfigurationLoader {
     let result = await lastValueFrom<any>(request);
 
     try {
-      let devConfig = await lastValueFrom(this.http.get<any>('/config/config.dev.json'));
+      let devConfig = await lastValueFrom(this.http.get<any>('/config/config.dev.json', { context: new HttpContext().set(HTTP_ERROR_HANDLING_MODE, 'silent') }));
 
       Object.assign(result, devConfig);
     } catch { }
