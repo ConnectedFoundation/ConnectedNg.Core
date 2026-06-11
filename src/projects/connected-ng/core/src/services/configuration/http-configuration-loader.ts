@@ -17,7 +17,15 @@ export class HttpConfigurationLoader {
       .get<any>('/config/config.json')
       .pipe(tap((data) => this.config = data));
 
-    return await lastValueFrom<any>(request);
+    let result = await lastValueFrom<any>(request);
+
+    try {
+      let devConfig = await lastValueFrom(this.http.get<any>('/config/config.dev.json'));
+
+      Object.assign(result, devConfig);
+    } catch { }
+
+    return result;
   }
 
   getConfig(): any {

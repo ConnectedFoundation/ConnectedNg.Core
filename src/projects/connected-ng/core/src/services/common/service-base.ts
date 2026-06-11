@@ -46,13 +46,13 @@ export function createServiceOperation<TDto extends object | undefined, TReturnT
   client?: HttpClient,
   urlService?: UrlService
 ): InvokableServiceOperation<TDto, TReturnType> {
-  let service: ServiceDescriptor;
+  let service: ServiceDescriptor | (() => ServiceDescriptor);
   let httpClient: HttpClient;
   let urlSvc: UrlService;
 
   if ('getService' in serviceOrBase) {
     // It's a ServiceBase
-    service = serviceOrBase.getService();
+    service = () => serviceOrBase.getService();
     httpClient = serviceOrBase.http;
     urlSvc = serviceOrBase.urlService;
   } else {
@@ -141,14 +141,13 @@ export abstract class ConnectedServiceBase implements ConnectedService {
 }
 
 export class ServiceOperation<TDto extends object | undefined, TReturnType> {
-  service: ServiceDescriptor;
-
+  service: ServiceDescriptor | (() => ServiceDescriptor);
   operation: string;
   method: HttpMethod = HttpMethod.GET;
   client: HttpClient;
   urlService: UrlService;
 
-  constructor(service: ServiceDescriptor, operation: string, method: HttpMethod = HttpMethod.GET, client?: HttpClient, urlService?: UrlService) {
+  constructor(service: ServiceDescriptor | (() => ServiceDescriptor), operation: string, method: HttpMethod = HttpMethod.GET, client?: HttpClient, urlService?: UrlService) {
     this.service = service;
     this.operation = operation;
     this.method = method;
@@ -157,7 +156,9 @@ export class ServiceOperation<TDto extends object | undefined, TReturnType> {
   }
 
   invoke(dto: TDto): Observable<TReturnType> {
-    let url = this.urlService.generateUrl(this.service.baseUrl, `${this.service.serviceUrl}/${this.operation}`);
+    let service = (typeof this.service == 'function') ? this.service() : this.service;
+
+    let url = this.urlService.generateUrl(service.baseUrl, `${service.serviceUrl}/${this.operation}`);
     let payload = this.getBodyAndParams(dto);
     let fn = this.resolveMethodFunction();
 
@@ -178,7 +179,9 @@ export class ServiceOperation<TDto extends object | undefined, TReturnType> {
   }
 
   describe(): Observable<DtoDescriptor> {
-    let url = this.urlService.generateUrl(this.service.baseUrl, `${this.service.serviceUrl}/${this.operation}/dto`);
+    let service = (typeof this.service == 'function') ? this.service() : this.service;
+
+    let url = this.urlService.generateUrl(service.baseUrl, `${service.serviceUrl}/${this.operation}/dto`);
     return this.client.get<DtoDescriptor>(url);
   }
 
