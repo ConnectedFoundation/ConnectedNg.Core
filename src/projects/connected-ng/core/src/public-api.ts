@@ -19,3 +19,4 @@ export * from './services/common/dtos/value-dto';
 export * from './services/common/dtos/query-dto';
 export * from './services/common/dtos/primary-key-list-dto';
 export * from './services/common/local-storage-service';
+export * from './services/identities/dtos/identity-authentication-token';
