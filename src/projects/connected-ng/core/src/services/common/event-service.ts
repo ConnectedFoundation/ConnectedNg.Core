@@ -1,6 +1,6 @@
 import { inject, Injectable, InjectionToken, OnDestroy, signal } from "@angular/core";
 import * as signalR from '@microsoft/signalr';
-import { catchError, defer, forkJoin, from, map, Observable, shareReplay, Subject, switchMap, throwError } from "rxjs";
+import { catchError, defer, forkJoin, from, map, Observable, of, shareReplay, Subject, switchMap, throwError } from "rxjs";
 import { configurationValue } from "../configuration/configuration-value";
 import { UrlService } from "../url-service";
 import { EventKey, EventSubscriptions } from "./event-subscriptions";
@@ -93,8 +93,8 @@ export class EventService implements OnDestroy {
   }
 
   /**
-   * Closes the connection and stops retrying, for example when the user signs out. Subscribers stay registered;
-   * nothing connects again until something subscribes anew or {@link resume} is called.
+   * Closes the connection and stops retrying, for example when the user signs out. Subscribers stay registered, and
+   * so do new ones, but nothing connects until {@link resume} is called.
    */
   async disconnect(): Promise<void> {
     this._stopped = true;
@@ -114,8 +114,8 @@ export class EventService implements OnDestroy {
   }
 
   /**
-   * Connects again after {@link disconnect}, for example after the user signs in, and subscribes to whatever
-   * subscribers are still waiting.
+   * Connects again after {@link disconnect}, for example after the user signs in, and subscribes to everything
+   * subscribers are waiting for, including what was subscribed while the service was stopped.
    */
   resume(): void {
     this._stopped = false;
@@ -129,25 +129,35 @@ export class EventService implements OnDestroy {
     this.ensureConnection();
     this.registerHandlers();
 
-    this.connect$ = defer(async () => {
-      if (!this._connection) throw new Error('Hub connection not created.');
+    const connection = this._connection;
 
-      if (this._connection.state === signalR.HubConnectionState.Connected
-        || this._connection.state === signalR.HubConnectionState.Connecting
-        || this._connection.state === signalR.HubConnectionState.Reconnecting)
+    this.connect$ = defer(async () => {
+      if (!connection) throw new Error('Hub connection not created.');
+
+      if (connection.state === signalR.HubConnectionState.Connected
+        || connection.state === signalR.HubConnectionState.Connecting
+        || connection.state === signalR.HubConnectionState.Reconnecting)
         return;
 
       this._state.set(ConnectionState.Connecting);
 
-      await this._connection.start();
+      await connection.start();
+
+      // Closed or replaced while it was starting: it is not the current connection any more, and whoever replaced it
+      // reports on the one that is.
+      if (this._connection !== connection)
+        return;
 
       this._state.set(ConnectionState.Connected);
+      this._isUnstable.set(false);
       this._lastError.set(null);
     }).pipe(
       catchError((err) => {
-        this._state.set(ConnectionState.Disconnected);
-        this._lastError.set(err?.message ?? 'Fail to connect to the event server');
-        this.connect$ = undefined;
+        if (this._connection === connection) {
+          this._state.set(ConnectionState.Disconnected);
+          this._lastError.set(err?.message ?? 'Fail to connect to the event server');
+          this.connect$ = undefined;
+        }
 
         return throwError(() => err);
       }),
@@ -174,6 +184,10 @@ export class EventService implements OnDestroy {
 
     forkJoin(keys.map(event => this.subscribeTo(event))).subscribe({
       next: () => {
+        // Only the connection that is current and up has been subscribed on; a stopped service has none.
+        if (this._connection?.state !== signalR.HubConnectionState.Connected)
+          return;
+
         this._attempt = 0;
 
         if (this._subscriptions.keys().length > 0)
@@ -187,7 +201,9 @@ export class EventService implements OnDestroy {
   }
 
   private onSubscribe(event: EventKey): void {
-    this._stopped = false;
+    // After disconnect() there is no session to connect for, and the token would be empty; resume() subscribes it.
+    if (this._stopped)
+      return;
 
     this.subscribeTo(event).subscribe({
       // A subscribe made while the server is down, or one it refuses, is made again by the recovery.
@@ -199,12 +215,19 @@ export class EventService implements OnDestroy {
     const descriptor = this.parseService(event);
 
     return this.connect().pipe(
-      switchMap(() =>
-        from(this._connection!.invoke('subscribe', [{
+      switchMap(() => {
+        const connection = this._connection;
+
+        // Closed or replaced since: whoever did that subscribes everything again on the connection that follows.
+        // A hub that is retrying does the same once it is back, and this subscription is already registered.
+        if (!connection || connection.state === signalR.HubConnectionState.Reconnecting)
+          return of(void 0);
+
+        return from(connection.invoke('subscribe', [{
           service: descriptor.service,
           event: descriptor.event
-        },]))),
-      map(() => void 0)
+        },])).pipe(map(() => void 0));
+      })
     );
   }
 

@@ -23,16 +23,26 @@ describe('eventRetryDelay', () => {
 class FakeHub {
   state = signalR.HubConnectionState.Disconnected;
   startFails = false;
+  finishesAfterStop = false;
   subscribeFailures = 0;
   stopped = false;
   invocations: string[] = [];
 
+  /** Holds start() until it settles, to have the service act while a start is in flight. */
+  startGate?: Promise<void>;
+  /** Holds a subscribe until it settles, to have the service act while one is in flight. */
+  subscribeGate?: Promise<void>;
+
   private closed?: () => void;
+  private reconnecting?: () => void;
   private reconnected?: () => void;
 
   async start(): Promise<void> {
-    if (this.startFails)
-      throw new Error('The server is down');
+    await this.startGate;
+
+    // A real hub refuses to finish a start it was stopped during; the service must not rely on that.
+    if (this.startFails || (this.stopped && !this.finishesAfterStop))
+      throw new Error(this.stopped ? 'The connection was stopped during start' : 'The server is down');
 
     this.state = signalR.HubConnectionState.Connected;
   }
@@ -45,6 +55,9 @@ class FakeHub {
   async invoke(method: string): Promise<void> {
     this.invocations.push(method);
 
+    if (method === 'subscribe')
+      await this.subscribeGate;
+
     if (method === 'subscribe' && this.subscribeFailures > 0) {
       this.subscribeFailures--;
 
@@ -53,9 +66,15 @@ class FakeHub {
   }
 
   on(): void { }
-  onreconnecting(): void { }
+  onreconnecting(handler: () => void): void { this.reconnecting = handler; }
   onreconnected(handler: () => void): void { this.reconnected = handler; }
   onclose(handler: () => void): void { this.closed = handler; }
+
+  /** The connection is lost and the hub is trying to get it back. */
+  lose(): void {
+    this.state = signalR.HubConnectionState.Reconnecting;
+    this.reconnecting?.();
+  }
 
   /** The connection is lost and the hub gives up on it. */
   close(): void {
@@ -81,6 +100,8 @@ describe('EventService connection', () => {
   const other = 'spike/widgets/updated' as EventKey;
 
   let service: EventService;
+  let configuration: EventServiceConfiguration;
+  let createHub: jasmine.Spy;
   let hubs: FakeHub[];
   let setup: (hub: FakeHub, index: number) => void;
   let reconnected: jasmine.Spy;
@@ -88,7 +109,7 @@ describe('EventService connection', () => {
   beforeEach(() => {
     jasmine.clock().install();
 
-    const configuration = new EventServiceConfiguration();
+    configuration = new EventServiceConfiguration();
 
     configuration.baseUrl.set('http://localhost/');
 
@@ -98,7 +119,7 @@ describe('EventService connection', () => {
     setup = () => { };
     service = TestBed.inject(EventService);
 
-    spyOn<any>(service, 'createHub').and.callFake(() => {
+    createHub = spyOn<any>(service, 'createHub').and.callFake(() => {
       const hub = new FakeHub();
 
       setup(hub, hubs.length);
@@ -255,6 +276,163 @@ describe('EventService connection', () => {
 
     expect(hubs.length).toBe(2);
     expect(reconnected).toHaveBeenCalledTimes(1);
+  });
+
+  it('is stable again once a recovery has connected', async () => {
+    service.on(key).subscribe();
+    await settle();
+
+    hubs[0].close();
+    expect(service.isUnstable()).toBeTrue();
+
+    jasmine.clock().tick(0);
+    await settle();
+
+    expect(service.isUnstable()).toBeFalse();
+    expect(service.state()).toBe(ConnectionState.Connected);
+  });
+
+  it('is stable again once the hub got the connection back', async () => {
+    service.on(key).subscribe();
+    await settle();
+
+    hubs[0].lose();
+    expect(service.isUnstable()).toBeTrue();
+    expect(service.state()).toBe(ConnectionState.Reconnecting);
+
+    hubs[0].reconnect();
+    await settle();
+
+    expect(service.isUnstable()).toBeFalse();
+  });
+
+  it('leaves a subscribe made while the hub is reconnecting to the hub', async () => {
+    service.on(key).subscribe();
+    await settle();
+
+    hubs[0].lose();
+    service.on(other).subscribe();
+    await settle();
+
+    jasmine.clock().tick(10000);
+    await settle();
+
+    expect(hubs.length).toBe(1);
+    expect(hubs[0].invocations).toEqual(['subscribe']);
+
+    hubs[0].reconnect();
+    await settle();
+
+    expect(hubs[0].invocations).toEqual(['subscribe', 'subscribe', 'subscribe']);
+    expect(reconnected).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not connect for a subscribe made after disconnect until resume', async () => {
+    service.on(key).subscribe();
+    await settle();
+    await service.disconnect();
+
+    service.on(other).subscribe();
+    jasmine.clock().tick(10000);
+    await settle();
+
+    expect(hubs.length).toBe(1);
+
+    service.resume();
+    jasmine.clock().tick(0);
+    await settle();
+
+    expect(hubs.length).toBe(2);
+    expect(hubs[1].invocations).toEqual(['subscribe', 'subscribe']);
+    expect(reconnected).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not come back when disconnect happens while a start is in flight', async () => {
+    let release!: () => void;
+
+    setup = (hub) => hub.startGate = new Promise<void>(resolve => release = resolve);
+
+    service.on(key).subscribe();
+    await settle();
+
+    const disconnected = service.disconnect();
+
+    release();
+    await disconnected;
+    await settle();
+    jasmine.clock().tick(10000);
+    await settle();
+
+    expect(hubs.length).toBe(1);
+    expect(hubs[0].invocations).toEqual([]);
+    expect(service.state()).toBe(ConnectionState.Disconnected);
+    expect(reconnected).not.toHaveBeenCalled();
+  });
+
+  it('does not report a connection that was stopped during its start as connected', async () => {
+    let release!: () => void;
+
+    setup = (hub) => {
+      hub.startGate = new Promise<void>(resolve => release = resolve);
+      hub.finishesAfterStop = true;
+    };
+
+    service.on(key).subscribe();
+    await settle();
+
+    const disconnected = service.disconnect();
+
+    release();
+    await disconnected;
+    await settle();
+
+    expect(service.state()).toBe(ConnectionState.Disconnected);
+    expect(hubs[0].invocations).toEqual([]);
+    expect(reconnected).not.toHaveBeenCalled();
+  });
+
+  it('does not come back when disconnect happens while a subscribe is in flight', async () => {
+    let fail!: (error: Error) => void;
+
+    setup = (hub) => hub.subscribeGate = new Promise<void>((_, reject) => fail = reject);
+
+    service.on(key).subscribe();
+    await settle();
+
+    const disconnected = service.disconnect();
+
+    fail(new Error('The invocation was canceled because the connection closed'));
+    await disconnected;
+    await settle();
+    jasmine.clock().tick(10000);
+    await settle();
+
+    expect(hubs.length).toBe(1);
+    expect(service.state()).toBe(ConnectionState.Disconnected);
+    expect(reconnected).not.toHaveBeenCalled();
+  });
+
+  it('reads the access token each time the hub asks for one', () => {
+    const withUrl = spyOn(signalR.HubConnectionBuilder.prototype, 'withUrl').and.callThrough();
+    let token = 'first';
+
+    configuration.accessTokenFactory.set(() => token);
+    createHub.and.callThrough();
+
+    (service as any).createHub('http://localhost/hubs/notifications/events');
+
+    const factory = (withUrl.calls.mostRecent().args[1] as signalR.IHttpConnectionOptions).accessTokenFactory!;
+
+    expect(factory()).toBe('first');
+
+    token = 'second';
+    expect(factory()).toBe('second');
+
+    configuration.accessTokenFactory.set(() => 'signed in again');
+    expect(factory()).toBe('signed in again');
+
+    configuration.accessTokenFactory.set(undefined);
+    expect(factory()).toBe('');
   });
 
   it('does not retry after a close that disconnect caused', async () => {
