@@ -1,6 +1,6 @@
-import { inject, Injectable, InjectionToken, signal } from "@angular/core";
+import { inject, Injectable, InjectionToken, OnDestroy, signal } from "@angular/core";
 import * as signalR from '@microsoft/signalr';
-import { catchError, defer, forkJoin, from, map, Observable, of, shareReplay, Subject, switchMap, throwError } from "rxjs";
+import { catchError, defer, forkJoin, from, map, Observable, shareReplay, Subject, switchMap, throwError } from "rxjs";
 import { configurationValue } from "../configuration/configuration-value";
 import { UrlService } from "../url-service";
 import { EventKey, EventSubscriptions } from "./event-subscriptions";
@@ -37,8 +37,15 @@ export class EventServiceConfiguration {
   accessTokenFactory = configurationValue<() => string>();
 }
 
+/**
+ * Delivers server events to subscribers over one hub connection.
+ *
+ * The connection keeps itself alive for as long as anything is subscribed: a drop is retried by the hub, and anything
+ * else that leaves it unusable (a close, a start that failed, a subscribe the server refused) is retried from scratch
+ * with the same delays. Events raised while it is down are not replayed; see {@link reconnected$}.
+ */
 @Injectable({ providedIn: 'root' })
-export class EventService {
+export class EventService implements OnDestroy {
   private static readonly _clientId: string = crypto.randomUUID();
 
   private configuration = inject(EVENT_SERVICE_CONFIG);
@@ -54,7 +61,9 @@ export class EventService {
   private _handlersRegistered: boolean = false;
   private _isUnstable = signal<boolean>(false)
   private _reconnected = new Subject<void>();
-  private _reopenTimer?: ReturnType<typeof setTimeout>;
+  private _recoverTimer?: ReturnType<typeof setTimeout>;
+  private _attempt = 0;
+  private _stopped = false;
 
   /**
    * Emits each time the connection is back after a drop and every subscription is made again. Events raised while it
@@ -77,6 +86,40 @@ export class EventService {
     this._subscriptions.onDisconnect((e) => {
       this.onUnsubscribe(e);
     });
+  }
+
+  ngOnDestroy(): void {
+    void this.disconnect();
+  }
+
+  /**
+   * Closes the connection and stops retrying, for example when the user signs out. Subscribers stay registered;
+   * nothing connects again until something subscribes anew or {@link resume} is called.
+   */
+  async disconnect(): Promise<void> {
+    this._stopped = true;
+    this.cancelRecovery();
+
+    const connection = this._connection;
+
+    this.discardConnection();
+    this._state.set(ConnectionState.Disconnected);
+    this._isUnstable.set(false);
+
+    try {
+      await connection?.stop();
+    } catch {
+      // Closing a connection that is already broken is not worth reporting.
+    }
+  }
+
+  /**
+   * Connects again after {@link disconnect}, for example after the user signs in, and subscribes to whatever
+   * subscribers are still waiting.
+   */
+  resume(): void {
+    this._stopped = false;
+    this.recover();
   }
 
   private connect(): Observable<void> {
@@ -119,17 +162,37 @@ export class EventService {
     return this._subscriptions.on(event);
   }
 
-  private _resubscribeAll(): void {
+  /**
+   * Subscribes again to everything subscribers are waiting for, on a new connection or after a drop, and announces it.
+   * A subscribe the server refuses leaves the connection useless, so it is retried from scratch.
+   */
+  private resubscribe(): void {
     const keys = this._subscriptions.keys();
 
-    forkJoin(keys.length === 0 ? [of(void 0)] : keys.map(event => this.subscribeTo(event))).subscribe({
-      next: () => this._reconnected.next(),
-      error: (err) => this._lastError.set(err?.message ?? 'Fail to subscribe to events again')
+    if (keys.length === 0)
+      return;
+
+    forkJoin(keys.map(event => this.subscribeTo(event))).subscribe({
+      next: () => {
+        this._attempt = 0;
+
+        if (this._subscriptions.keys().length > 0)
+          this._reconnected.next();
+      },
+      error: (err) => {
+        this._lastError.set(err?.message ?? 'Fail to subscribe to events again');
+        this.recover();
+      }
     });
   }
 
   private onSubscribe(event: EventKey): void {
-    this.subscribeTo(event).subscribe();
+    this._stopped = false;
+
+    this.subscribeTo(event).subscribe({
+      // A subscribe made while the server is down, or one it refuses, is made again by the recovery.
+      error: () => this.recover()
+    });
   }
 
   private subscribeTo(event: EventKey): Observable<void> {
@@ -145,77 +208,123 @@ export class EventService {
     );
   }
 
-  /**
-   * Opens a connection again after the old one closed for good, for as long as anything is still subscribed. The
-   * hub's own reconnect handles a drop; this covers a close the server announced, as when a generation is replaced.
-   */
-  private reopen(attempt = 0): void {
-    if (this._reopenTimer || this._subscriptions.keys().length === 0)
-      return;
-
-    this._reopenTimer = setTimeout(() => {
-      this._reopenTimer = undefined;
-
-      this.connect().subscribe({
-        next: () => this._resubscribeAll(),
-        error: () => this.reopen(attempt + 1)
-      });
-    }, eventRetryDelay(attempt));
-  }
-
   private onUnsubscribe(event: EventKey): void {
     const descriptor = this.parseService(event);
 
-    this.connect().pipe(
-      switchMap(() =>
-        from(this._connection!.invoke('unsubscribe', [{
-          service: descriptor.service,
-          event: descriptor.event
-        },]))),
-      map(() => void 0)
-    ).subscribe();
+    // The channel is removed after this runs, so it is still among the keys.
+    if (this._subscriptions.keys().every(key => key === event))
+      this.cancelRecovery();
+
+    // Only a live connection has anything to unsubscribe from; one that is down has dropped its subscriptions.
+    if (this._connection?.state !== signalR.HubConnectionState.Connected)
+      return;
+
+    from(this._connection.invoke('unsubscribe', [{
+      service: descriptor.service,
+      event: descriptor.event
+    },])).subscribe({ error: () => { } });
+  }
+
+  /**
+   * Makes the connection good again from scratch after it failed, while anything is still subscribed: waits, then
+   * replaces the connection and subscribes again. If that fails too it waits longer, and so on.
+   */
+  private recover(): void {
+    if (this._stopped || this._recoverTimer || this._subscriptions.keys().length === 0)
+      return;
+
+    this._recoverTimer = setTimeout(() => {
+      this._recoverTimer = undefined;
+
+      if (this._stopped || this._subscriptions.keys().length === 0) {
+        this._attempt = 0;
+
+        return;
+      }
+
+      const connection = this._connection;
+
+      this.discardConnection();
+      connection?.stop().catch(() => { });
+
+      this.connect().subscribe({
+        next: () => this.resubscribe(),
+        error: () => this.recover()
+      });
+    }, eventRetryDelay(this._attempt++));
+  }
+
+  private cancelRecovery(): void {
+    clearTimeout(this._recoverTimer);
+
+    this._recoverTimer = undefined;
+    this._attempt = 0;
+  }
+
+  /**
+   * Forgets the current connection, so the next connect makes a new one. Events from the old one are ignored.
+   */
+  private discardConnection(): void {
+    this.connect$ = undefined;
+    this._connection = undefined;
+    this._handlersRegistered = false;
+  }
+
+  /**
+   * Creates the hub connection. The access token is read each time the hub asks for one, so a token that changed
+   * since the connection was made is used by the next attempt.
+   */
+  protected createHub(url: string): signalR.HubConnection {
+    const retryPolicy: signalR.IRetryPolicy = {
+      nextRetryDelayInMilliseconds: (retryContext) => eventRetryDelay(retryContext.previousRetryCount)
+    };
+
+    return new signalR.HubConnectionBuilder()
+      .withUrl(url, {
+        accessTokenFactory: () => this.configuration.accessTokenFactory?.()?.() ?? '',
+        withCredentials: false
+      })
+      .withAutomaticReconnect(retryPolicy)
+      .configureLogging(signalR.LogLevel.Information)
+      .build();
   }
 
   private ensureConnection() {
     if (this._connection)
       return;
 
-    const accessTokenFactory = this.configuration.accessTokenFactory?.() || (() => '');
     const url = this.urlService.generateUrl(this.configuration.baseUrl(), `hubs/notifications/events?client=${EventService._clientId}`);
+    const connection = this.createHub(url);
 
-    const retryPolicy: signalR.IRetryPolicy = {
-      nextRetryDelayInMilliseconds: (retryContext) => eventRetryDelay(retryContext.previousRetryCount)
-    };
+    this._connection = connection;
 
-    this._connection = new signalR.HubConnectionBuilder()
-      .withUrl(url, {
-        accessTokenFactory: accessTokenFactory,
-        withCredentials: false
-      })
-      .withAutomaticReconnect(retryPolicy)
-      .configureLogging(signalR.LogLevel.Information)
-      .build();
+    // A connection that was replaced can still report; only the current one counts.
+    connection.onreconnecting(() => {
+      if (this._connection !== connection)
+        return;
 
-    this._connection.onreconnecting(() => {
       this._state.set(ConnectionState.Reconnecting);
       this._isUnstable.set(true);
     });
-    this._connection.onreconnected(() => {
+    connection.onreconnected(() => {
+      if (this._connection !== connection)
+        return;
+
       this._state.set(ConnectionState.Connected);
       this._isUnstable.set(false);
-      this._resubscribeAll();
+      this.resubscribe();
     });
-    this._connection.onclose(() => {
+    connection.onclose(() => {
+      if (this._connection !== connection)
+        return;
+
       this._state.set(ConnectionState.Disconnected);
 
       // Only unstable if subscribers are still waiting — not a normal idle close
       this._isUnstable.set(this._subscriptions.keys().length > 0);
 
-      this.connect$ = undefined;
-      this._connection = undefined;
-      this._handlersRegistered = false;
-
-      this.reopen();
+      this.discardConnection();
+      this.recover();
     });
   }
 
@@ -223,13 +332,15 @@ export class EventService {
     if (this._handlersRegistered)
       return;
 
-    if (!this._connection)
+    const connection = this._connection;
+
+    if (!connection)
       return;
 
-    this._connection.on(
+    connection.on(
       'notify',
       async (acknowledge: { id: string }, service: string, event: string, dto: unknown) => {
-        await this._connection!.invoke('acknowledge', { id: acknowledge.id });
+        await connection.invoke('acknowledge', { id: acknowledge.id });
 
         const key = `${service}/${event}`.toLowerCase();
 
