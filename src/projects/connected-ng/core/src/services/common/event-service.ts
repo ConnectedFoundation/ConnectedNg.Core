@@ -1,6 +1,6 @@
 import { inject, Injectable, InjectionToken, signal } from "@angular/core";
 import * as signalR from '@microsoft/signalr';
-import { catchError, defer, from, map, Observable, shareReplay, switchMap, throwError } from "rxjs";
+import { catchError, defer, forkJoin, from, map, Observable, of, shareReplay, Subject, switchMap, throwError } from "rxjs";
 import { configurationValue } from "../configuration/configuration-value";
 import { UrlService } from "../url-service";
 import { EventKey, EventSubscriptions } from "./event-subscriptions";
@@ -15,6 +15,18 @@ export enum ConnectionState {
 type ServiceDescriptor = {
   service: string;
   event: string;
+}
+
+const RETRY_DELAYS_MS = [0, 1000, 2000];
+const RETRY_MAX_DELAY_MS = 5000;
+
+/**
+ * How long to wait before the given reconnect attempt (0 for the first). The first attempt is immediate: when the
+ * server was replaced by a new generation, the new one is already there, and every second spent waiting is a second
+ * of live events the screen misses. Later attempts back off to a fixed maximum and never give up.
+ */
+export function eventRetryDelay(previousRetryCount: number): number {
+  return RETRY_DELAYS_MS[previousRetryCount] ?? RETRY_MAX_DELAY_MS;
 }
 
 // Event Service Configuration
@@ -41,6 +53,14 @@ export class EventService {
   private _subscriptions: EventSubscriptions;
   private _handlersRegistered: boolean = false;
   private _isUnstable = signal<boolean>(false)
+  private _reconnected = new Subject<void>();
+  private _reopenTimer?: ReturnType<typeof setTimeout>;
+
+  /**
+   * Emits each time the connection is back after a drop and every subscription is made again. Events raised while it
+   * was down are not replayed, so a screen showing live state should reload that state when this emits.
+   */
+  readonly reconnected$ = this._reconnected.asObservable();
 
   readonly state = this._state.asReadonly();
   readonly lastError = this._lastError.asReadonly();
@@ -100,22 +120,47 @@ export class EventService {
   }
 
   private _resubscribeAll(): void {
-    for (const event of this._subscriptions.keys()) {
-      this.onSubscribe(event);
-    }
+    const keys = this._subscriptions.keys();
+
+    forkJoin(keys.length === 0 ? [of(void 0)] : keys.map(event => this.subscribeTo(event))).subscribe({
+      next: () => this._reconnected.next(),
+      error: (err) => this._lastError.set(err?.message ?? 'Fail to subscribe to events again')
+    });
   }
 
   private onSubscribe(event: EventKey): void {
+    this.subscribeTo(event).subscribe();
+  }
+
+  private subscribeTo(event: EventKey): Observable<void> {
     const descriptor = this.parseService(event);
 
-    this.connect().pipe(
+    return this.connect().pipe(
       switchMap(() =>
         from(this._connection!.invoke('subscribe', [{
           service: descriptor.service,
           event: descriptor.event
         },]))),
       map(() => void 0)
-    ).subscribe();
+    );
+  }
+
+  /**
+   * Opens a connection again after the old one closed for good, for as long as anything is still subscribed. The
+   * hub's own reconnect handles a drop; this covers a close the server announced, as when a generation is replaced.
+   */
+  private reopen(attempt = 0): void {
+    if (this._reopenTimer || this._subscriptions.keys().length === 0)
+      return;
+
+    this._reopenTimer = setTimeout(() => {
+      this._reopenTimer = undefined;
+
+      this.connect().subscribe({
+        next: () => this._resubscribeAll(),
+        error: () => this.reopen(attempt + 1)
+      });
+    }, eventRetryDelay(attempt));
   }
 
   private onUnsubscribe(event: EventKey): void {
@@ -139,9 +184,7 @@ export class EventService {
     const url = this.urlService.generateUrl(this.configuration.baseUrl(), `hubs/notifications/events?client=${EventService._clientId}`);
 
     const retryPolicy: signalR.IRetryPolicy = {
-      nextRetryDelayInMilliseconds: (retryContext) => {
-        return 5000;
-      }
+      nextRetryDelayInMilliseconds: (retryContext) => eventRetryDelay(retryContext.previousRetryCount)
     };
 
     this._connection = new signalR.HubConnectionBuilder()
@@ -171,6 +214,8 @@ export class EventService {
       this.connect$ = undefined;
       this._connection = undefined;
       this._handlersRegistered = false;
+
+      this.reopen();
     });
   }
 
